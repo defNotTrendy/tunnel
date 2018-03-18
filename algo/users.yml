@@ -1,0 +1,71 @@
+---
+
+- hosts: localhost
+  gather_facts: False
+  tags: always
+  vars_files:
+    - config.cfg
+
+  tasks:
+    - block:
+        - name: Add the server to the vpn-host group
+          add_host:
+            hostname: "{{ server_ip }}"
+            groupname: vpn-host
+            ansible_ssh_user: "{{ server_user }}"
+            ansible_python_interpreter: "/usr/bin/python2.7"
+            ssh_tunneling_enabled: "{{ ssh_tunneling_enabled }}"
+            easyrsa_CA_password: "{{ easyrsa_CA_password }}"
+            IP_subject: "{{ IP_subject_alt_name }}"
+            ansible_ssh_private_key_file: "{{ SSH_keys.private }}"
+
+        - name: Wait until SSH becomes ready...
+          local_action:
+            module: wait_for
+            port: 22
+            host: "{{ server_ip }}"
+            search_regex: "OpenSSH"
+            delay: 10
+            timeout: 320
+            state: present
+          become: false
+      rescue:
+        - debug: var=fail_hint
+          tags: always
+        - fail:
+          tags: always
+
+- name: User management
+  hosts: vpn-host
+  gather_facts: true
+  become: true
+  vars_files:
+    - config.cfg
+
+  pre_tasks:
+    - block:
+        - name: Common pre-tasks
+          include: playbooks/common.yml
+          tags: always
+      rescue:
+        - debug: var=fail_hint
+          tags: always
+        - fail:
+          tags: always
+
+  roles:
+    - { role: ssh_tunneling, tags: always, when: ssh_tunneling_enabled is defined and ssh_tunneling_enabled == "y" }
+    - { role: vpn }
+
+  post_tasks:
+    - block:
+        - debug:
+            msg:
+              - "{{ congrats.common.split('\n') }}"
+              - "    {% if p12.changed %}{{ congrats.p12_pass }}{% endif %}"
+          tags: always
+      rescue:
+        - debug: var=fail_hint
+          tags: always
+        - fail:
+          tags: always
